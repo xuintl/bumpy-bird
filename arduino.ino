@@ -1,3 +1,7 @@
+// Wiring (SparkFun MMA8452Q breakout):
+// VCC -> 3.3V, GND -> GND, SDA -> hardware SDA (A4 on Uno), SCL -> hardware SCL (A5 on Uno).
+// INT1/INT2 are not used in this sketch; leave unconnected or pulled high. Sensor is 3.3V only.
+
 #include <Wire.h>
 
 const byte MMA8452Q_ADDRESS = 0x1D; // SA0 pulled high on SparkFun board
@@ -14,16 +18,16 @@ unsigned long lastSampleMs = 0;
 const unsigned long samplePeriodMs = 50; // 20 Hz logging
 
 // Gesture thresholds
-const float bumpThresholdG = 2.2f;        // Z-axis spike for flap
+const float bumpThresholdG = 1.2f;        // Additional g over baseline Z to count as a bump (more sensitive)
 const unsigned long bumpCooldownMs = 200; // Debounce bump events
 const float tiltOnDeg = 30.0f;            // Angle to trigger tilt event
 const float tiltOffDeg = 20.0f;           // Angle to clear latch (hysteresis)
 
-// Gesture state
-unsigned long lastBumpMs = 0;
-int lastTiltDir = 0; // -1 left, 0 none, +1 right
-float lastAngleDeg = 0.0f;
-unsigned long lastAngleMs = 0;
+// Gesture state (debounce and velocity tracking)
+unsigned long lastBumpMs = 0;  // Last time a bump was emitted
+int lastTiltDir = 0;           // -1 left, 0 none, +1 right
+float lastAngleDeg = 0.0f;     // Previous angle for velocity
+unsigned long lastAngleMs = 0; // Timestamp for velocity
 
 // Calibration baseline
 float restXg = 0.0f;
@@ -217,7 +221,7 @@ void detectBump(float zG)
 
     // Detect bump as deviation from calibrated rest Z
     float deltaZ = zG - restZg;
-    if (deltaZ > (bumpThresholdG - 1.0f)) // Adjust threshold to be relative
+    if (deltaZ > bumpThresholdG)
     {
         Serial.println(F("BUMP"));
         lastBumpMs = nowMs;

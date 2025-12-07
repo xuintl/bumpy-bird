@@ -4,7 +4,7 @@
 
 ### Arduino (Accelerometer Input)
 - **Calibration on Startup**: Takes 20 samples over 1 second to establish rest position baseline (X, Y, Z in g-forces)
-- **Bump Detection**: Triggers when Z-axis deviation from rest exceeds ~1.2g (accounts for baseline tilt), 200ms cooldown prevents double-triggers
+- **Bump Detection**: Triggers when Z-axis deviation from rest exceeds ~1.2g (relative to calibrated baseline), 200ms cooldown prevents double-triggers
 - **Tilt Detection**: 
   - Calculates angle relative to calibrated rest position (not absolute)
   - LEFT tilt: angle < -30°, RIGHT tilt: angle > 30°
@@ -15,10 +15,10 @@
 ### P5.js (Game Logic)
 
 #### Stage Flow
-1. **Tutorial** (5 pipes, 5s intervals, 200px gap, 60s max)
-   - Simple attributes only: Happy, Sad, Brave, Mean, Kind
-   - GREEN border = tilt LEFT (good words)
-   - RED border = tilt RIGHT (bad words)
+1. **Tutorial** (target 8 passes, 5s intervals, 220px gap)
+   - Simple attributes only (10 words: 5 good/green, 5 bad/red)
+   - Live legend panel (GOOD=LEFT, BAD=RIGHT) + tutorial feedback messages
+   - Skip Tutorial button available during play
    
 2. **Level 1** (15 pipes, 4s intervals, 180px gap)
    - 60% simple attributes, 40% category pairs
@@ -30,8 +30,8 @@
    - 100% category pairs (hardest stereotypes)
    
 5. **Results** (indefinite)
-   - Score, pipes cleared, accuracy, lives
-   - Press 'E' to download CSV
+   - Score, pipes cleared, accuracy, collisions, tilt errors
+   - Press 'E' to download trial CSV + session summary CSV
 
 #### Input Processing
 - **Bump → Flap**: Consumed immediately when received, applies lift to bird
@@ -57,15 +57,14 @@ Each category pair has a **fixed expected tilt** throughout the session:
 This ensures IAT validity: same stimulus always requires same response.
 
 #### Data Logging
-Every pipe pass/collision logs:
-- Trial number, word, category, color cue
-- Expected tilt, actual tilt (if provided)
-- Reaction time (ms from word display to tilt)
-- Tilt angle (degrees), angular velocity (deg/s)
-- Correct boolean, pipe cleared boolean
-- Level, Unix timestamp
+Every trial logs:
+- participant_name, session_id, trial, word, category, color_cue
+- expected_tilt, actual_tilt, RT_ms, angle_deg, velocity_deg_s
+- correct, pipe_cleared, points_at_trial, level, timestamp_unix
 
-CSV exported on demand via 'E' key in results screen.
+Exports on results screen ('E'):
+- Trial CSV: `FlappyIAT_<name>_<session>.csv`
+- Session summary CSV: participant, session, final score, pipes cleared, accuracy %, avg RT, collisions, tilt errors, timestamp
 
 ---
 
@@ -75,12 +74,16 @@ CSV exported on demand via 'E' key in results screen.
 1. ✅ Added `calibrateRestPosition()` function (was called but not defined)
 2. ✅ Velocity calculation only active when tilted (prevents stale velocity)
 3. ✅ Reset velocity tracking when returning to center
+4. ✅ Bump threshold made more sensitive (≈+1.2g over baseline)
 
 ### P5.js
 1. ✅ Fixed random category tilts → consistent mapping per category
 2. ✅ Added 300ms tilt debounce to prevent accidental double-tilts
 3. ✅ Added 2s tilt expiration to ignore stale events
 4. ✅ Only consume tilt when active pipe with trial exists
+5. ✅ Added tutorial overlay, feedback messages, and skip button
+6. ✅ Added stage transition flash (~0.9s) between levels
+7. ✅ Added session summary CSV export
 
 ---
 
@@ -127,21 +130,25 @@ CSV exported on demand via 'E' key in results screen.
 
 ### CSV Output Format
 ```
-trial,word,category,color_cue,expected_tilt,actual_tilt,RT_ms,angle_deg,velocity_deg_s,correct,pipe_cleared,level,timestamp_unix
-1,Happy,Happy,green,left,left,782,35.2,850,true,true,tutorial,1733702400000
-2,Female Doctor,Female Doctor,green,left,right,1205,32.8,420,false,true,level1,1733702405000
+participant_name,session_id,trial,word,category,color_cue,expected_tilt,actual_tilt,RT_ms,angle_deg,velocity_deg_s,correct,pipe_cleared,points_at_trial,level,timestamp_unix
+Alice,ab12cd,1,Happy,Happy,green,left,left,782,35.2,850,true,true,10,tutorial,1733702400000
+Alice,ab12cd,2,Female Doctor,Female Doctor,green,left,right,1205,32.8,420,false,true,8,level1,1733702405000
 ...
+```
+### Session Summary CSV
+```
+participant_name,session_id,final_score,pipes_cleared,accuracy_pct,avg_RT_ms,total_collisions,tilt_errors,timestamp_unix
+Alice,ab12cd,245,40,91.5,780.2,3,2,1733702600000
 ```
 
 ---
 
 ## 🚧 Known Limitations
 
-1. **No Passive Metrics Export Yet**: RT variance, impulsivity scores, etc. calculated but not exported
-2. **No Visual Hearts**: Lives tracked numerically but no sprite rendering
-3. **No "Level Up" Flash**: Stage transitions happen silently
-4. **Tilt Instructions Static**: Tutorial shows text but no animated cues
-5. **No Recalibration UI**: Player can't reset Arduino baseline from browser
+1. **Passive Metrics Export Not Implemented**: RT variance, impulsivity, post-error bump spikes still TODO
+2. **Browser Recalibration**: Must power-cycle Arduino to recalibrate baseline
+3. **UI Buttons**: Export triggered by key ('E'); no on-screen export button yet
+4. **Mic/Pitch Artifacts**: Legacy pitch variables remain (unused) but still in code
 
 ---
 
@@ -154,7 +161,6 @@ trial,word,category,color_cue,expected_tilt,actual_tilt,RT_ms,angle_deg,velocity
 - [x] Tilt debouncing prevents double-counts
 - [x] Stale tilts (>2s) ignored
 - [x] Trial data logs all required fields
-- [x] CSV export works ('E' key in results)
-- [ ] Full 40-trial session completes (need hardware test)
-- [ ] Lives display as hearts (visual polish)
-- [ ] Stage transition flash (UX polish)
+- [x] CSV export works ('E' key in results) for trials + session summary
+- [ ] Full 40-trial session completes (needs hardware validation)
+- [ ] Passive metrics export (future)

@@ -13,24 +13,26 @@ let bird;
 let pipes = [];
 
 // Game state and score
-let gameState = 'start'; // 'start', 'playing', 'gameOver', 'results'
-let score = 0;
+let gameState = 'nameEntry'; // 'nameEntry', 'start', 'playing', 'gameOver', 'results'
+let participantName = '';
+let score = 0; // Can go negative
 let base_x = 0; // for scrolling base
 let voiceIsActive = false; // Legacy mic flag (unused now)
+let totalCollisions = 0;
+let tiltErrors = 0;
 
 // Stages (tutorial + 3 levels)
 const stages = [
-  { key: 'tutorial', label: 'Tutorial', pipeIntervalMs: 5000, gap: 200, targetPasses: 5, maxDurationMs: 60000 },
-  { key: 'level1', label: 'Level 1', pipeIntervalMs: 4000, gap: 180, targetPasses: 15 },
-  { key: 'level2', label: 'Level 2', pipeIntervalMs: 3500, gap: 160, targetPasses: 15 },
-  { key: 'level3', label: 'Level 3', pipeIntervalMs: 3000, gap: 140, targetPasses: 10 }
+  { key: 'tutorial', label: 'Tutorial - Practice', pipeIntervalMs: 5000, gap: 280, targetPasses: 8, maxDurationMs: 120000 },
+  { key: 'level1', label: 'Level 1', pipeIntervalMs: 4000, gap: 250, targetPasses: 15 },
+  { key: 'level2', label: 'Level 2', pipeIntervalMs: 3500, gap: 230, targetPasses: 15 },
+  { key: 'level3', label: 'Level 3', pipeIntervalMs: 3000, gap: 210, targetPasses: 10 }
 ];
 let stageIndex = 0;
 let stagePasses = 0;
 let stageStartMs = 0;
 let nextPipeDueMs = 0;
 let pipesCleared = 0;
-let lives = 3;
 
 // Serial / accelerometer integration
 let serialManager;
@@ -45,7 +47,12 @@ const simpleAttributes = [
   { word: 'Sad', sentiment: 'bad' },
   { word: 'Brave', sentiment: 'good' },
   { word: 'Mean', sentiment: 'bad' },
-  { word: 'Kind', sentiment: 'good' }
+  { word: 'Kind', sentiment: 'good' },
+  { word: 'Honest', sentiment: 'good' },
+  { word: 'Cheerful', sentiment: 'good' },
+  { word: 'Cruel', sentiment: 'bad' },
+  { word: 'Dishonest', sentiment: 'bad' },
+  { word: 'Angry', sentiment: 'bad' }
 ];
 const categoryPairs = [
   { word: 'Female Doctor', expectedTilt: 'left' },
@@ -65,6 +72,9 @@ let activePipeRef = null; // reference to the lead pipe carrying current stimulu
 // Feedback visuals
 let flashOverlay = null; // {color, expiresMs}
 let markerOverlays = []; // array of {x,y,color,expiresMs}
+let floatingTexts = []; // array of FloatingText instances
+let tutorialFeedbacks = []; // array of {text,color,expiresMs}
+let transitionOverlay = null; // {text, expiresMs}
 
 // Pitch detection
 let mic;
@@ -117,6 +127,10 @@ function setup() {
   applyViewportScale();
   bird = new Bird();
 
+  // Setup text rendering
+  textFont('Arial');
+  textAlign(LEFT, BASELINE);
+
   // Setup audio for pitch detection
   audioContext = getAudioContext();
   // Don't create mic here, will do when calibration starts
@@ -125,6 +139,7 @@ function setup() {
   serialManager = new SerialManager(onSerialLine, onSerialError, onSerialOpen, onSerialClose);
 
   initStage();
+  console.log('[DEBUG] Setup complete. Initial state:', gameState);
 }
 
 // --- PITCH DETECTION FUNCTIONS ---
@@ -171,7 +186,10 @@ function getPitch() {
     }
     // If below threshold, don't reset frequencies, let the bird hover
 
-    console.log(`Detected: ${currentFreq.toFixed(2)} Hz | Smoothed: ${smoothedFreq.toFixed(2)} Hz | Amp: ${amplitude.toFixed(3)}`);
+    // Throttled logging for pitch to avoid console flood (every ~60 frames or 1 sec approx)
+    if (frameCount % 60 === 0) {
+      console.log(`[DEBUG] Pitch: ${currentFreq.toFixed(2)} Hz | Smoothed: ${smoothedFreq.toFixed(2)} Hz | Amp: ${amplitude.toFixed(3)}`);
+    }
 
     // Continue the loop
     if (gameState !== 'gameOver') {
@@ -188,6 +206,9 @@ function draw() {
 
   // Handle different game states
   switch (gameState) {
+    case 'nameEntry':
+      drawNameEntryScreen();
+      break;
     case 'start':
       drawStartScreen();
       break;
@@ -208,16 +229,64 @@ function draw() {
 
 // --- GAME STATE DRAWING FUNCTIONS ---
 
-function drawStartScreen() {
-  image(sprites.message, width / 2 - sprites.message.width / 2, height / 2 - 150);
+function drawNameEntryScreen() {
+  push();
   fill(255);
+  noStroke();
   textAlign(CENTER, CENTER);
-  text("Flap with accelerometer bumps.\nPress 'C' to connect accelerometer (Web Serial).\nClick to start.", width / 2, height / 2 - 200);
+  textSize(24);
+  text("Welcome to Flappy Bird IAT", width / 2, height / 3);
+
+  textSize(16);
+  text("Enter your name to begin:", width / 2, height / 2 - 40);
+
+  // Draw input box
+  noFill();
+  stroke(255);
+  strokeWeight(2);
+  rect(width / 4, height / 2, width / 2, 40, 5);
+
+  // Draw entered name
+  fill(255);
+  noStroke();
+  textSize(18);
+  text(participantName + (frameCount % 30 < 15 ? '|' : ''), width / 2, height / 2 + 20);
+
+  textSize(12);
+  fill(200);
+  text("Type your name and press ENTER", width / 2, height / 2 + 60);
+  text("Press 'C' to connect accelerometer", width / 2, height - 40);
+  pop();
+}
+
+function drawStartScreen() {
+  push();
+  image(sprites.message, width / 2 - sprites.message.width / 2, height / 2 - 150);
+
+  fill(255);
+  noStroke();
+  textAlign(CENTER, CENTER);
+  textSize(14);
+  text("Welcome, " + participantName + "!", width / 2, height / 2 - 220);
+
+  textSize(12);
+  text("You'll practice recognizing:\nGREEN = GOOD words → Tilt LEFT\nRED = BAD words → Tilt RIGHT\n\nClick to start tutorial", width / 2, height / 2 - 180);
+  pop();
 }
 
 function drawPlayingScreen() {
   // Stage data
   const stage = stages[stageIndex];
+
+  // If in transition, show overlay and pause gameplay updates
+  if (transitionOverlay) {
+    if (millis() > transitionOverlay.expiresMs) {
+      transitionOverlay = null;
+    } else {
+      drawTransitionOverlay();
+      return;
+    }
+  }
 
   // Spawn pipes on schedule
   const nowMs = millis();
@@ -240,10 +309,12 @@ function drawPlayingScreen() {
 
     // Update score
     if (pipes[i].pass(bird)) {
-      score++;
+      console.log(`[DEBUG] Pipe passed! Score: ${score} -> ${score + 10}`);
+      score += 10;
       pipesCleared++;
       stagePasses++;
       sounds.point.play();
+      floatingTexts.push(new FloatingText(bird.x, bird.y - 20, '+10', color(50, 255, 50), 1));
       markPipeCleared(pipes[i]);
       checkStageProgress();
     }
@@ -277,40 +348,57 @@ function drawPlayingScreen() {
 
   // Check for ground collision
   if (bird.y + bird.h / 2 > height - sprites.base.height) {
-    sounds.hit.play();
-    sounds.die.play();
-    stopSound();
-    gameState = 'gameOver';
+    handleCollision();
   }
 
   drawScore();
   drawHud(stage);
+  drawTutorialOverlay();
   drawStimulusOverlay();
+  drawTutorialFeedback();
   drawFeedbackOverlays();
+  drawFloatingTexts();
   drawDebugInfo();
 }
 
 function drawGameOverScreen() {
+  push();
   image(sprites.gameOver, width / 2 - sprites.gameOver.width / 2, height / 2 - 100);
   drawScore(height / 2);
   fill(255);
+  noStroke();
   textAlign(CENTER, CENTER);
+  textSize(14);
   text("Click to play again.", width / 2, height / 2 + 80);
+  pop();
 }
 
 function drawResultsScreen() {
+  push();
   fill(255);
+  noStroke();
   textAlign(CENTER, CENTER);
-  textSize(18);
-  text(`Results`, width / 2, height / 2 - 120);
+  textSize(22);
+  text('Session Complete!', width / 2, height / 2 - 130);
+
+  textSize(16);
+  text(`Participant: ${participantName || 'Anonymous'}`, width / 2, height / 2 - 100);
+
   textSize(14);
   const accuracy = computeAccuracy();
-  text(`Score: ${score}`, width / 2, height / 2 - 90);
-  text(`Pipes cleared: ${pipesCleared}/40`, width / 2, height / 2 - 65);
-  text(`Lives remaining: ${lives}`, width / 2, height / 2 - 40);
-  text(`Accuracy: ${accuracy.toFixed(1)}%`, width / 2, height / 2 - 15);
+  const finalScoreColor = score >= 0 ? color(50, 255, 50) : color(255, 50, 50);
+  fill(finalScoreColor);
+  text(`Final Score: ${score}`, width / 2, height / 2 - 70);
+
+  fill(255);
+  text(`Pipes Cleared: ${pipesCleared}/40`, width / 2, height / 2 - 45);
+  text(`Total Collisions: ${totalCollisions}`, width / 2, height / 2 - 20);
+  text(`Tilt Errors: ${tiltErrors}`, width / 2, height / 2 + 5);
+  text(`Tilt Accuracy: ${accuracy.toFixed(1)}%`, width / 2, height / 2 + 30);
+
   textSize(12);
-  text("Click to replay. Press 'E' to download CSV.", width / 2, height / 2 + 20);
+  text("Click to replay. Press 'E' to download CSV + summary.", width / 2, height / 2 + 60);
+  pop();
 }
 
 function drawBase() {
@@ -324,14 +412,16 @@ function drawBase() {
 }
 
 function drawDebugInfo() {
+  push();
   fill(0);
+  noStroke();
   textSize(10);
   textAlign(LEFT, TOP);
   text(`Serial: ${serialStatus}`, 5, 5);
   if (latestTiltEvent) {
     text(`Tilt: ${latestTiltEvent.dir} v=${latestTiltEvent.velocity.toFixed(0)} a=${latestTiltEvent.angle.toFixed(1)}`, 5, 20);
   }
-  textSize(12); // Reset text size
+  pop();
 }
 
 function drawScore(yPos = 30) {
@@ -350,12 +440,146 @@ function drawScore(yPos = 30) {
 }
 
 function drawHud(stage) {
+  push();
+  noStroke();
   textAlign(LEFT, TOP);
   textSize(12);
   fill(255);
   text(`${stage.label}`, 8, 8);
-  text(`Lives: ${lives}`, 8, 24);
-  text(`Stage passes: ${stagePasses}/${stage.targetPasses ?? '-'}`, 8, 40);
+  text(`Stage passes: ${stagePasses}/${stage.targetPasses ?? '-'}`, 8, 24);
+
+  // Large score display at top center
+  textAlign(CENTER, TOP);
+  textSize(20);
+  const scoreColor = score < 0 ? color(255, 100, 100) : color(255);
+  fill(scoreColor);
+  text(`Score: ${score}`, width / 2, 8);
+  pop();
+}
+
+function drawTutorialOverlay() {
+  const stage = stages[stageIndex];
+  if (!stage || stage.key !== 'tutorial') return;
+
+  push();
+  // Compute tutorial progress
+  const tutorialCorrect = trialData.filter((t) => t.level === 'tutorial' && t.correct).length;
+  const tutorialTarget = stage.targetPasses || 8;
+
+  // Instruction panel
+  const panelY = 34;
+  const panelH = 70;
+  const panelW = width * 0.94;
+  const panelX = (width - panelW) / 2;
+  fill(0, 0, 0, 140);
+  noStroke();
+  rect(panelX, panelY, panelW, panelH, 8);
+
+  // Legend boxes
+  const legendY = panelY + 18;
+  const legendX = panelX + 12;
+  const boxW = 60;
+  const boxH = 20;
+  fill(0, 180, 0, 220);
+  rect(legendX, legendY, boxW, boxH, 4);
+  fill(255);
+  noStroke();
+  textAlign(LEFT, CENTER);
+  textSize(12);
+  text('GOOD = LEFT', legendX + boxW + 6, legendY + boxH / 2);
+
+  const redX = legendX + 120;
+  fill(200, 40, 40, 220);
+  noStroke();
+  rect(redX, legendY, boxW, boxH, 4);
+  fill(255);
+  text('BAD = RIGHT', redX + boxW + 6, legendY + boxH / 2);
+
+  // Bump hint
+  const bumpX = redX + 130;
+  fill(255);
+  textSize(12);
+  text('BUMP to flap', bumpX, legendY + boxH / 2);
+
+  // Counter
+  const counterX = panelX + panelW - 100;
+  const counterY = legendY + boxH / 2;
+  textAlign(RIGHT, CENTER);
+  text(`Tutorial: ${tutorialCorrect}/${tutorialTarget}`, counterX, counterY);
+  pop();
+
+  // Skip button
+  drawSkipButton();
+}
+
+function drawSkipButton() {
+  push();
+  const { x, y, w, h } = getSkipButtonRect();
+  const hover = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+  fill(hover ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)');
+  stroke(255);
+  strokeWeight(1);
+  rect(x, y, w, h, 6);
+  noStroke();
+  fill(255);
+  textAlign(CENTER, CENTER);
+  textSize(12);
+  text('Skip Tutorial', x + w / 2, y + h / 2);
+  pop();
+}
+
+function getSkipButtonRect() {
+  const w = 100;
+  const h = 26;
+  const x = width - w - 12;
+  const y = height - h - 12;
+  return { x, y, w, h };
+}
+
+function addTutorialFeedback(trial, correct) {
+  const stage = stages[stageIndex];
+  if (!stage || stage.key !== 'tutorial') return;
+  const expectedPhrase = trial.expectedTilt === 'left' ? 'GREEN = GOOD → LEFT' : 'RED = BAD → RIGHT';
+  const text = correct ? `Great! ${expectedPhrase} ✓` : `Try again! ${expectedPhrase}`;
+  const col = correct ? color(50, 220, 50, 230) : color(240, 80, 80, 230);
+  tutorialFeedbacks.push({ text, color: col, expiresMs: millis() + 1200 });
+}
+
+function drawTutorialFeedback() {
+  const stage = stages[stageIndex];
+  if (!stage || stage.key !== 'tutorial') return;
+  const now = millis();
+  tutorialFeedbacks = tutorialFeedbacks.filter((f) => now <= f.expiresMs);
+  if (!tutorialFeedbacks.length) return;
+  push();
+  const latest = tutorialFeedbacks[tutorialFeedbacks.length - 1];
+  const panelW = width * 0.9;
+  const panelH = 36;
+  const panelX = (width - panelW) / 2;
+  const panelY = height - panelH - 60;
+  fill(0, 0, 0, 160);
+  noStroke();
+  rect(panelX, panelY, panelW, panelH, 8);
+  fill(latest.color);
+  noStroke();
+  textAlign(CENTER, CENTER);
+  textSize(14);
+  text(latest.text, width / 2, panelY + panelH / 2);
+  pop();
+}
+
+function drawTransitionOverlay() {
+  if (!transitionOverlay) return;
+  push();
+  fill(0, 0, 0, 180);
+  noStroke();
+  rect(0, 0, width, height);
+  fill(255);
+  noStroke();
+  textAlign(CENTER, CENTER);
+  textSize(26);
+  text(transitionOverlay.text, width / 2, height / 2);
+  pop();
 }
 
 // --- USER INPUT AND GAME RESET ---
@@ -364,16 +588,33 @@ function mousePressed() {
   if (audioContext.state !== 'running') {
     audioContext.resume();
   }
+  // Handle skip tutorial click while playing tutorial
+  if (gameState === 'playing' && stages[stageIndex]?.key === 'tutorial') {
+    const { x, y, w, h } = getSkipButtonRect();
+    if (mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h) {
+      stageIndex = 1; // Jump to Level 1
+      pipes = [];
+      activePipeRef = null;
+      initStage();
+      return;
+    }
+  }
   switch (gameState) {
+    case 'nameEntry':
+      // Must enter name first
+      break;
     case 'start':
+      console.log('[DEBUG] State transition: start -> playing');
       sounds.swoosh.play();
       gameState = 'playing';
       initStage();
       break;
     case 'gameOver':
+      console.log('[DEBUG] State transition: gameOver -> reset');
       resetGame();
       break;
     case 'results':
+      console.log('[DEBUG] State transition: results -> reset');
       resetGame();
       break;
   }
@@ -389,28 +630,37 @@ function stopSound() {
 }
 
 function resetGame() {
+  console.log('[DEBUG] Resetting game...');
   pipes = [];
   bird = new Bird();
   score = 0;
-  lives = 3;
   pipesCleared = 0;
   stageIndex = 0;
   stagePasses = 0;
   trialData = [];
+  totalCollisions = 0;
+  tiltErrors = 0;
+  floatingTexts = [];
+  participantName = '';
   initStage();
   // Reset frequencies
   currentFreq = 0;
   smoothedFreq = 0;
   freqHistory = [];
-  gameState = 'start';
+  gameState = 'nameEntry';
   sounds.swoosh.play();
   // No need to restart mic here, it will be created on next 'start' click
 }
 
 function handleCollision() {
-  lives -= 1;
+  console.log(`[DEBUG] Collision! Score: ${score} -> ${score - 5}`);
+  totalCollisions += 1;
+  score -= 5; // Deduct 5 points
   sounds.hit.play();
   sounds.die.play();
+
+  // Spawn floating -5 text
+  floatingTexts.push(new FloatingText(bird.x, bird.y, '-5', color(255, 50, 50), -1));
 
   // If there is an active trial not yet logged, record as miss (no pipe clear)
   if (activePipeRef && activePipeRef.trial && !activePipeRef.trial.logged) {
@@ -421,16 +671,12 @@ function handleCollision() {
     t.angle_deg = t.angle_deg ?? '';
     t.velocity_deg_s = t.velocity_deg_s ?? '';
     t.correct = false;
+    t.points_at_trial = score;
     t.timestamp_unix = Date.now();
     trialData.push({ ...t });
   }
 
-  if (lives <= 0) {
-    gameState = 'gameOver';
-    return;
-  }
-
-  // Respawn: clear current pipes and reset bird
+  // Always respawn - no game over
   pipes = [];
   bird = new Bird();
   nextPipeDueMs = millis() + stages[stageIndex].pipeIntervalMs;
@@ -458,10 +704,13 @@ function checkStageProgress() {
   // Advance stage or finish
   stageIndex += 1;
   if (stageIndex >= stages.length) {
+    console.log('[DEBUG] All stages complete. Moving to results.');
     gameState = 'results';
     return;
   }
 
+  console.log(`[DEBUG] Level Up! Entering stage: ${stages[stageIndex].label}`);
+  transitionOverlay = { text: `LEVEL UP! ${stages[stageIndex].label}`, expiresMs: millis() + 900 };
   initStage();
 }
 
@@ -477,15 +726,23 @@ function recordTiltForActivePipe(tilt) {
   trial.angle_deg = tilt.angle;
   trial.velocity_deg_s = tilt.velocity;
   trial.correct = correct;
+  trial.points_at_trial = score;
   trial.timestamp_unix = Date.now();
 
   trialData.push({ ...trial });
 
   if (correct) {
+    console.log(`[DEBUG] Tilt CORRECT. Word="${trial.word}", Dir=${tilt.dir}, RT=${rtMs}ms`);
     markerOverlays.push({ x: bird.x + 20, y: bird.y, color: 'green', expiresMs: millis() + 200 });
+    addTutorialFeedback(trial, true);
   } else {
+    console.log(`[DEBUG] Tilt INCORRECT. Word="${trial.word}", Dir=${tilt.dir}, Expected=${trial.expectedTilt}`);
+    tiltErrors += 1;
+    score -= 2; // Deduct 2 points for incorrect tilt
     flashOverlay = { color: 'rgba(255,0,0,0.5)', expiresMs: millis() + 200 };
     markerOverlays.push({ x: bird.x + 20, y: bird.y, color: 'red', expiresMs: millis() + 500 });
+    floatingTexts.push(new FloatingText(bird.x + 30, bird.y, '-2', color(255, 150, 0), 0));
+    addTutorialFeedback(trial, false);
   }
 }
 
@@ -494,6 +751,7 @@ function markPipeCleared(pipe) {
     pipe.trial.pipeCleared = true;
     if (!pipe.trial.logged) {
       pipe.trial.logged = true;
+      pipe.trial.points_at_trial = score;
       pipe.trial.timestamp_unix = Date.now();
       trialData.push({ ...pipe.trial });
     }
@@ -505,6 +763,7 @@ function markPipeCleared(pipe) {
 
 function drawStimulusOverlay() {
   if (!activePipeRef || !activePipeRef.trial) return;
+  push();
   const { word, expectedTilt, colorCue } = activePipeRef.trial;
   const bg = expectedTilt === 'left' ? color(0, 150, 0, 120) : color(200, 30, 30, 120);
   fill(bg);
@@ -512,11 +771,14 @@ function drawStimulusOverlay() {
   noStroke();
   rect(width / 2, 60, width * 0.9, 50, 6);
   fill(255);
+  noStroke();
   textAlign(CENTER, CENTER);
   textSize(18);
   text(word, width / 2, 60);
   textSize(10);
   text(expectedTilt === 'left' ? 'Tilt LEFT (green)' : 'Tilt RIGHT (red)', width / 2, 82);
+  rectMode(CORNER);
+  pop();
 }
 
 function drawFeedbackOverlays() {
@@ -541,6 +803,15 @@ function drawFeedbackOverlays() {
   });
 }
 
+function drawFloatingTexts() {
+  const now = millis();
+  floatingTexts = floatingTexts.filter((ft) => !ft.isDead(now));
+  floatingTexts.forEach((ft) => {
+    ft.update();
+    ft.show();
+  });
+}
+
 function computeAccuracy() {
   if (!trialData.length) return 0;
   const correct = trialData.filter((t) => t.correct).length;
@@ -552,8 +823,10 @@ function exportTrialCsv() {
     console.warn('No trial data to export');
     return;
   }
-  const header = ['trial', 'word', 'category', 'color_cue', 'expected_tilt', 'actual_tilt', 'RT_ms', 'angle_deg', 'velocity_deg_s', 'correct', 'pipe_cleared', 'level', 'timestamp_unix'];
+  const header = ['participant_name', 'session_id', 'trial', 'word', 'category', 'color_cue', 'expected_tilt', 'actual_tilt', 'RT_ms', 'angle_deg', 'velocity_deg_s', 'correct', 'pipe_cleared', 'points_at_trial', 'level', 'timestamp_unix'];
   const rows = trialData.map((t) => [
+    participantName || 'Anonymous',
+    sessionId,
     t.trialNum,
     t.word,
     t.category,
@@ -565,11 +838,31 @@ function exportTrialCsv() {
     t.velocity_deg_s ?? '',
     t.correct ?? '',
     t.pipeCleared,
+    t.points_at_trial ?? '',
     t.level,
     t.timestamp_unix ?? ''
   ]);
   const csv = [header.join(','), ...rows.map((r) => r.join(','))].join('\n');
-  triggerDownload(`trial_data_${sessionId}.csv`, csv);
+  const namePart = participantName ? participantName.replace(/\s+/g, '_') : 'Anonymous';
+  triggerDownload(`FlappyIAT_${namePart}_${sessionId}.csv`, csv);
+}
+
+function exportSessionSummary() {
+  const name = participantName || 'Anonymous';
+  const finalScore = score;
+  const cleared = pipesCleared;
+  const accuracyPct = computeAccuracy().toFixed(1);
+  const rtValues = trialData
+    .map((t) => t.RT_ms)
+    .filter((v) => typeof v === 'number' && !isNaN(v));
+  const avgRt = rtValues.length ? (rtValues.reduce((a, b) => a + b, 0) / rtValues.length).toFixed(1) : '';
+  const timestamp = Date.now();
+
+  const header = ['participant_name', 'session_id', 'final_score', 'pipes_cleared', 'accuracy_pct', 'avg_RT_ms', 'total_collisions', 'tilt_errors', 'timestamp_unix'];
+  const row = [name, sessionId, finalScore, cleared, accuracyPct, avgRt, totalCollisions, tiltErrors, timestamp];
+  const csv = `${header.join(',')}\n${row.join(',')}`;
+  const namePart = participantName ? participantName.replace(/\s+/g, '_') : 'Anonymous';
+  triggerDownload(`session_summary_${namePart}_${sessionId}.csv`, csv);
 }
 
 function triggerDownload(filename, content) {
@@ -593,8 +886,8 @@ class Bird {
     this.w = 34; // Approximate width from asset
     this.h = 24; // Approximate height from asset
     this.vy = 0;
-    this.gravity = 0.6;
-    this.lift = -9.5;
+    this.gravity = 0.35; // Reduced from 0.6 for slower fall
+    this.lift = -7.5; // Reduced from -9.5 for gentler bumps
     this.frame = 0;
   }
 
@@ -683,6 +976,42 @@ class Pipe {
   }
 }
 
+class FloatingText {
+  constructor(x, y, text, color, vy) {
+    this.x = x;
+    this.y = y;
+    this.text = text;
+    this.color = color;
+    this.vy = vy; // 1 = rise, -1 = fall, 0 = horizontal drift
+    this.vx = this.vy === 0 ? 0.5 : 0;
+    this.alpha = 255;
+    this.birthMs = millis();
+    this.lifetimeMs = 1500;
+  }
+
+  update() {
+    this.y += this.vy * 0.5;
+    this.x += this.vx;
+    const age = millis() - this.birthMs;
+    this.alpha = map(age, 0, this.lifetimeMs, 255, 0);
+  }
+
+  show() {
+    push();
+    fill(red(this.color), green(this.color), blue(this.color), this.alpha);
+    noStroke();
+    textAlign(CENTER, CENTER);
+    textSize(18);
+    textStyle(BOLD);
+    text(this.text, this.x, this.y);
+    pop();
+  }
+
+  isDead(now) {
+    return (now - this.birthMs) > this.lifetimeMs;
+  }
+}
+
 function assignStimulus(pipe, stage) {
   currentTrialNum += 1;
   const stimulus = pickStimulusForStage(stage);
@@ -701,6 +1030,7 @@ function assignStimulus(pipe, stage) {
     level: stage.key,
     logged: false
   };
+  console.log(`[DEBUG] Pipe spawned. Trial #${currentTrialNum}: Word="${stimulus.word}", Expect=${expectedTilt}, Level=${stage.key}`);
 }
 
 function pickStimulusForStage(stage) {
@@ -773,6 +1103,22 @@ function keyPressed() {
 
   if ((key === 'e' || key === 'E') && gameState === 'results') {
     exportTrialCsv();
+    exportSessionSummary();
+  }
+
+  // Name entry handling
+  if (gameState === 'nameEntry') {
+    if (key === 'Enter' && participantName.trim().length > 0) {
+      gameState = 'start';
+      sounds.swoosh.play();
+    } else if (key === 'Backspace') {
+      participantName = participantName.slice(0, -1);
+    } else if (key.length === 1 && /[a-zA-Z0-9 ]/.test(key)) {
+      if (participantName.length < 20) {
+        participantName += key;
+      }
+    }
+    return false; // Prevent default
   }
 }
 
@@ -790,12 +1136,14 @@ function onSerialLine(rawLine) {
   if (!line) return;
 
   if (line === 'BUMP') {
+    console.log('[DEBUG] Serial Event: BUMP');
     bumpQueued = true;
     return;
   }
 
   const tiltMatch = line.match(/^TILT_(LEFT|RIGHT):([0-9]+):(-?[0-9]+(?:\.\d+)?)/);
   if (tiltMatch) {
+    console.log(`[DEBUG] Serial Event: TILT ${tiltMatch[1]} (vel=${tiltMatch[2]}, ang=${tiltMatch[3]})`);
     latestTiltEvent = {
       dir: tiltMatch[1] === 'LEFT' ? 'left' : 'right',
       velocity: parseFloat(tiltMatch[2]),
