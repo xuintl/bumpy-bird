@@ -25,6 +25,12 @@ int lastTiltDir = 0; // -1 left, 0 none, +1 right
 float lastAngleDeg = 0.0f;
 unsigned long lastAngleMs = 0;
 
+// Calibration baseline
+float restXg = 0.0f;
+float restYg = 0.0f;
+float restZg = 1.0f;
+bool calibrated = false;
+
 void setup()
 {
     Serial.begin(115200);
@@ -47,7 +53,9 @@ void setup()
         }
     }
 
-    Serial.println(F("Sensor ready. Logging X/Y/Z in g (raw counts)."));
+    Serial.println(F("Sensor ready. Calibrating..."));
+    calibrateRestPosition();
+    Serial.println(F("READY"));
 }
 
 void loop()
@@ -207,7 +215,9 @@ void detectBump(float zG)
         return;
     }
 
-    if (zG > bumpThresholdG)
+    // Detect bump as deviation from calibrated rest Z
+    float deltaZ = zG - restZg;
+    if (deltaZ > (bumpThresholdG - 1.0f)) // Adjust threshold to be relative
     {
         Serial.println(F("BUMP"));
         lastBumpMs = nowMs;
@@ -217,13 +227,18 @@ void detectBump(float zG)
 void detectTilt(float xG, float yG, float zG)
 {
     unsigned long nowMs = millis();
-    // Calculate tilt angle around the X-axis relative to gravity
+    // Calculate tilt angle around the X-axis relative to calibrated rest position
+    // Subtract rest baseline to get relative tilt
+    float relX = xG - restXg;
+    float relY = yG - restYg;
+    float relZ = zG - restZg;
+
     // Angle sign: positive = right tilt, negative = left tilt
-    float angleDeg = atan2f(xG, sqrtf((yG * yG) + (zG * zG))) * (180.0f / PI);
+    float angleDeg = atan2f(relX, sqrtf((relY * relY) + (relZ * relZ))) * (180.0f / PI);
 
     // Angular velocity (deg/s)
     float velocityDegPerSec = 0.0f;
-    if (lastAngleMs != 0)
+    if (lastAngleMs != 0 && lastTiltDir != 0) // Only calculate velocity when actively tilted
     {
         unsigned long dt = nowMs - lastAngleMs;
         if (dt > 0)
@@ -255,6 +270,46 @@ void detectTilt(float xG, float yG, float zG)
     }
     else if (fabs(angleDeg) < tiltOffDeg)
     {
+        if (lastTiltDir != 0)
+        {
+            // Reset velocity tracking when returning to center
+            lastAngleMs = 0;
+        }
         lastTiltDir = 0;
     }
+}
+
+void calibrateRestPosition()
+{
+    // Take 20 samples over 1 second to average out noise
+    const int numSamples = 20;
+    float sumX = 0.0f;
+    float sumY = 0.0f;
+    float sumZ = 0.0f;
+
+    for (int i = 0; i < numSamples; i++)
+    {
+        float x, y, z;
+        int16_t rawX, rawY, rawZ;
+        if (readAcceleration(rawX, rawY, rawZ, x, y, z))
+        {
+            sumX += x;
+            sumY += y;
+            sumZ += z;
+        }
+        delay(50);
+    }
+
+    restXg = sumX / numSamples;
+    restYg = sumY / numSamples;
+    restZg = sumZ / numSamples;
+    calibrated = true;
+
+    Serial.print(F("Calibrated rest: X="));
+    Serial.print(restXg, 3);
+    Serial.print(F("g Y="));
+    Serial.print(restYg, 3);
+    Serial.print(F("g Z="));
+    Serial.print(restZg, 3);
+    Serial.println(F("g"));
 }
