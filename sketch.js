@@ -18,6 +18,12 @@ let score = 0;
 let base_x = 0; // for scrolling base
 let voiceIsActive = false; // To track if voice is detected
 
+// Serial / accelerometer integration
+let serialManager;
+let serialStatus = 'disconnected'; // disconnected | connecting | connected | error
+let latestTiltEvent = null; // {dir, velocity, angle, ts}
+let bumpQueued = false; // true when a BUMP event is received
+
 // Pitch detection
 let mic;
 let pitch;
@@ -72,6 +78,9 @@ function setup() {
   // Setup audio for pitch detection
   audioContext = getAudioContext();
   // Don't create mic here, will do when calibration starts
+
+  // Prepare serial manager but don't auto-connect; user triggers with 'C'
+  serialManager = new SerialManager(onSerialLine, onSerialError, onSerialOpen, onSerialClose);
 }
 
 // --- PITCH DETECTION FUNCTIONS ---
@@ -162,7 +171,7 @@ function drawStartScreen() {
   image(sprites.message, width / 2 - sprites.message.width / 2, height / 2 - 150);
   fill(255);
   textAlign(CENTER, CENTER);
-  text("Use your voice to control the bird!\nClick to calibrate your vocal range.", width / 2, height / 2 - 200);
+  text("Flap with accelerometer bumps.\nPress 'C' to connect accelerometer (Web Serial).\nClick to start.", width / 2, height / 2 - 200);
 }
 
 function drawCalibrateNoiseScreen() {
@@ -210,8 +219,12 @@ function drawPlayingScreen() {
     }
   }
 
-  // Update and draw bird - use smoothed frequency
-  bird.handlePitch(smoothedFreq, voiceIsActive);
+  // Apply pending bump (flap)
+  if (bumpQueued) {
+    bird.flap();
+    bumpQueued = false;
+  }
+
   bird.update();
   bird.show();
 
@@ -225,14 +238,6 @@ function drawPlayingScreen() {
 
   drawScore();
   drawDebugInfo();
-
-  // Display warning if no voice is detected
-  if (!voiceIsActive) {
-    fill(255, 0, 0);
-    textAlign(CENTER, TOP);
-    textSize(14);
-    text("NO VOICE DETECTED", width / 2, 5);
-  }
 }
 
 function drawGameOverScreen() {
@@ -257,9 +262,10 @@ function drawDebugInfo() {
   fill(0);
   textSize(10);
   textAlign(LEFT, TOP);
-  text(`Low: ${minPitch.toFixed(0)} Hz`, 5, 5);
-  text(`High: ${maxPitch.toFixed(0)} Hz`, 5, 20);
-  text(`Threshold: ${noiseThreshold.toFixed(3)}`, 5, 35);
+  text(`Serial: ${serialStatus}`, 5, 5);
+  if (latestTiltEvent) {
+    text(`Tilt: ${latestTiltEvent.dir} v=${latestTiltEvent.velocity.toFixed(0)} a=${latestTiltEvent.angle.toFixed(1)}`, 5, 20);
+  }
   textSize(12); // Reset text size
 }
 
@@ -287,38 +293,7 @@ function mousePressed() {
   switch (gameState) {
     case 'start':
       sounds.swoosh.play();
-      gameState = 'calibrateNoise';
-      // Start pitch detection process, which now includes creating the mic
-      startPitch();
-      // Calibrate noise, then pitch, then play
-      setTimeout(() => {
-        // Set noise threshold (average level + a buffer)
-        noiseThreshold = mic.getLevel() * 1.5 + 0.01;
-        console.log("Noise threshold set to: " + noiseThreshold);
-
-        gameState = 'calibratePitch';
-        isCalibratingLow = true;
-        // Capture lowest pitch after a short delay
-        setTimeout(() => {
-          minPitch = smoothedFreq > 50 ? smoothedFreq : 100;
-          console.log("Min pitch set to: " + minPitch);
-          isCalibratingLow = false;
-          isCalibratingHigh = true;
-          // Capture highest pitch after another delay
-          setTimeout(() => {
-            maxPitch = smoothedFreq > minPitch ? smoothedFreq : minPitch + 400;
-            console.log("Max pitch set to: " + maxPitch);
-            isCalibratingHigh = false;
-            // Ensure model is loaded before starting game loop with getPitch
-            if (pitch) {
-              gameState = 'playing';
-            } else {
-              console.log("Pitch model not ready, waiting...");
-              // Add a fallback or wait mechanism if needed
-            }
-          }, 3000);
-        }, 3000);
-      }, 2000); // 2 seconds for noise calibration
+      gameState = 'playing';
       break;
     case 'gameOver':
       resetGame();
@@ -356,8 +331,9 @@ class Bird {
     this.x = 64;
     this.w = 34; // Approximate width from asset
     this.h = 24; // Approximate height from asset
-
-    // Remove gravity-based physics
+    this.vy = 0;
+    this.gravity = 0.6;
+    this.lift = -9.5;
     this.frame = 0;
   }
 
@@ -369,31 +345,25 @@ class Bird {
   }
 
   update() {
+    this.vy += this.gravity;
+    this.y += this.vy;
+
     // Keep bird in bounds
     if (this.y < 0) {
       this.y = 0;
+      this.vy = 0;
     }
-    if (this.y > height - sprites.base.height) {
-      this.y = height - sprites.base.height;
+    const floorY = height - sprites.base.height;
+    if (this.y > floorY) {
+      this.y = floorY;
+      this.vy = 0;
     }
   }
 
-  // Improved pitch control with no falling
-  handlePitch(freq, isActive) {
-    if (isActive && freq > 50) { // Only respond to meaningful frequencies
-      // Map the calibrated pitch to screen height
-      let targetY = map(freq, minPitch, maxPitch, height - sprites.base.height - 20, 20);
-      // Constrain to valid range
-      targetY = constrain(targetY, 20, height - sprites.base.height - 20);
-      // Smooth interpolation
-      this.y = lerp(this.y, targetY, 0.15);
-      // // Play wing sound if bird is moving up significantly
-      // if (this.y < bird.y - 1 && !sounds.wing.isPlaying()) {
-      //   sounds.wing.play();
-      // }
-    } else {
-      // If no active voice, apply slight gravity
-      this.y += 1.5;
+  flap() {
+    this.vy = this.lift;
+    if (sounds.wing && !sounds.wing.isPlaying()) {
+      sounds.wing.play();
     }
   }
 }
@@ -474,6 +444,11 @@ function keyPressed() {
   if (key === 'f' || key === 'F') {
     toggleFullscreen();
   }
+
+  // Manual serial connect/disconnect
+  if (key === 'c' || key === 'C') {
+    serialManager.connect();
+  }
 }
 
 function toggleFullscreen() {
@@ -481,4 +456,128 @@ function toggleFullscreen() {
   fullscreen(!fs);
   // Allow the browser a moment to enter/exit fullscreen before re-scaling
   setTimeout(applyViewportScale, 150);
+}
+
+// --- WEB SERIAL INTEGRATION ---
+
+function onSerialLine(rawLine) {
+  const line = rawLine.trim();
+  if (!line) return;
+
+  if (line === 'BUMP') {
+    bumpQueued = true;
+    return;
+  }
+
+  const tiltMatch = line.match(/^TILT_(LEFT|RIGHT):([0-9]+):(-?[0-9]+(?:\.\d+)?)/);
+  if (tiltMatch) {
+    latestTiltEvent = {
+      dir: tiltMatch[1] === 'LEFT' ? 'left' : 'right',
+      velocity: parseFloat(tiltMatch[2]),
+      angle: parseFloat(tiltMatch[3]),
+      ts: millis()
+    };
+    return;
+  }
+
+  // Unknown lines are kept visible in console for troubleshooting
+  console.log('Serial (unparsed):', line);
+}
+
+function onSerialError(err) {
+  console.error('Serial error', err);
+  serialStatus = 'error';
+}
+
+function onSerialOpen() {
+  serialStatus = 'connected';
+  console.log('Serial connected');
+}
+
+function onSerialClose() {
+  serialStatus = 'disconnected';
+  console.log('Serial closed');
+}
+
+class SerialManager {
+  constructor(onLine, onError, onOpen, onClose) {
+    this.onLine = onLine;
+    this.onError = onError;
+    this.onOpen = onOpen;
+    this.onClose = onClose;
+    this.port = null;
+    this.reader = null;
+    this.decoder = new TextDecoder();
+    this.buffer = '';
+  }
+
+  async connect() {
+    if (!('serial' in navigator)) {
+      serialStatus = 'unsupported';
+      console.warn('Web Serial not supported in this browser.');
+      return;
+    }
+
+    if (this.port) {
+      // Already connected; toggle to disconnect
+      await this.disconnect();
+      return;
+    }
+
+    try {
+      serialStatus = 'connecting';
+      this.port = await navigator.serial.requestPort();
+      await this.port.open({ baudRate: 115200 });
+      this.onOpen && this.onOpen();
+      this.readLoop();
+    } catch (err) {
+      serialStatus = 'error';
+      this.onError && this.onError(err);
+    }
+  }
+
+  async disconnect() {
+    try {
+      if (this.reader) {
+        await this.reader.cancel();
+      }
+      if (this.port) {
+        await this.port.close();
+      }
+    } catch (err) {
+      console.warn('Error during serial disconnect', err);
+    } finally {
+      this.port = null;
+      this.reader = null;
+      this.buffer = '';
+      this.onClose && this.onClose();
+    }
+  }
+
+  async readLoop() {
+    if (!this.port?.readable) return;
+    this.reader = this.port.readable.getReader();
+
+    try {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { value, done } = await this.reader.read();
+        if (done) break;
+        if (value) {
+          const chunk = this.decoder.decode(value, { stream: true });
+          this.buffer += chunk;
+          let newlineIndex;
+          while ((newlineIndex = this.buffer.indexOf('\n')) >= 0) {
+            const line = this.buffer.slice(0, newlineIndex);
+            this.buffer = this.buffer.slice(newlineIndex + 1);
+            this.onLine && this.onLine(line);
+          }
+        }
+      }
+    } catch (err) {
+      this.onError && this.onError(err);
+    } finally {
+      await this.disconnect();
+    }
+  }
 }
