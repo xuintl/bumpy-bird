@@ -18,13 +18,13 @@ unsigned long lastSampleMs = 0;
 const unsigned long samplePeriodMs = 50; // 20 Hz logging
 
 // Gesture thresholds
-const float bumpThresholdG = 1.2f;        // Additional g over baseline Z to count as a bump (more sensitive)
-const unsigned long bumpCooldownMs = 200; // Debounce bump events
-const float tiltOnDeg = 30.0f;            // Angle to trigger tilt event
-const float tiltOffDeg = 20.0f;           // Angle to clear latch (hysteresis)
+const float waveThresholdG = 0.5f;        // Minimum g-force below rest to trigger wave (lower = more sensitive)
+const unsigned long waveCooldownMs = 200; // Minimum time between wave events (ms)
+const float tiltOnDeg = 30.0f;            // Tilt angle required to trigger event (lower = more sensitive)
+const float tiltOffDeg = 20.0f;           // Angle below which tilt resets (hysteresis prevents flicker)
 
 // Gesture state (debounce and velocity tracking)
-unsigned long lastBumpMs = 0;  // Last time a bump was emitted
+unsigned long lastWaveMs = 0;  // Last time a wave was emitted
 int lastTiltDir = 0;           // -1 left, 0 none, +1 right
 float lastAngleDeg = 0.0f;     // Previous angle for velocity
 unsigned long lastAngleMs = 0; // Timestamp for velocity
@@ -83,7 +83,7 @@ void loop()
         return;
     }
 
-    detectBump(z);
+    detectWave(z);
     detectTilt(x, y, z);
 }
 
@@ -198,7 +198,7 @@ bool readRegisters(byte startReg, byte *buffer, byte length)
         return false;
     }
 
-    byte received = Wire.requestFrom(MMA8452Q_ADDRESS, length, true);
+    byte received = Wire.requestFrom(MMA8452Q_ADDRESS, length, (uint8_t)true);
     if (received != length)
     {
         return false;
@@ -211,20 +211,20 @@ bool readRegisters(byte startReg, byte *buffer, byte length)
     return true;
 }
 
-void detectBump(float zG)
+void detectWave(float zG)
 {
     unsigned long nowMs = millis();
-    if (nowMs - lastBumpMs < bumpCooldownMs)
+    if (nowMs - lastWaveMs < waveCooldownMs)
     {
         return;
     }
 
-    // Detect bump as deviation from calibrated rest Z
-    float deltaZ = zG - restZg;
-    if (deltaZ > bumpThresholdG)
+    // Detect wave as deviation from calibrated rest Z
+    float deltaZ = restZg - zG;
+    if (deltaZ > waveThresholdG)
     {
         Serial.println(F("WAVE"));
-        lastBumpMs = nowMs;
+        lastWaveMs = nowMs;
     }
 }
 

@@ -117,6 +117,9 @@ function draw() {
 
   // Draw the scrolling base
   drawBase();
+
+  // Serial status should render on top of the base
+  drawSerialStatus();
 }
 
 // --- GAME STATE DRAWING FUNCTIONS ---
@@ -145,9 +148,9 @@ function drawNameEntryScreen() {
   text(participantName + (frameCount % 30 < 15 ? '|' : ''), width / 2, height / 2 + 20);
 
   textSize(12);
-  fill(200);
-  text("Type your name and press ENTER", width / 2, height / 2 + 60);
-  text("Press 'C' to connect accelerometer", width / 2, height - 40);
+  fill(0);
+  text("Type your name and press ENTER", width / 2, height / 2 + 75);
+  text("Press '-' to connect accelerometer", width / 2, height - 60);
   pop();
 }
 
@@ -162,7 +165,7 @@ function drawStartScreen() {
   text("Welcome, " + participantName + "!", width / 2, height / 2 - 220);
 
   textSize(12);
-  text("Wave to flap and navigate through pipes!\n\nPress SPACE or wave your device\n\nClick to start", width / 2, height / 2 - 180);
+  text("Wave to flap and navigate through pipes!\nPress SPACE or wave your device\nClick to start", width / 2, height / 2 - 180);
   pop();
 }
 
@@ -292,7 +295,7 @@ function drawResultsScreen() {
   // text(`Tilt Accuracy: ${accuracy.toFixed(1)}%`, width / 2, height / 2 + 30);
 
   textSize(12);
-  text("Click to replay. Press 'E' to download CSV + summary.", width / 2, height / 2 + 60);
+  text("Click to replay. Press '=' to download CSV + summary.", width / 2, height / 2 + 60);
   pop();
 }
 
@@ -319,6 +322,35 @@ function drawDebugInfo() {
     const a = latestTiltEvent.angle != null ? latestTiltEvent.angle.toFixed(1) : '-';
     text(`Tilt: ${latestTiltEvent.dir} v=${v} a=${a}`, 5, 32);
   }
+  pop();
+}
+
+function drawSerialStatus() {
+  push();
+  fill(255);
+  noStroke();
+  textAlign(CENTER, CENTER);
+  textSize(12);
+
+  let statusText = '';
+  let statusColor = color(255);
+
+  if (serialStatus === 'connected') {
+    statusText = '🟢 Accelerometer Connected (Serial)';
+    statusColor = color(100, 255, 100);
+  } else if (serialStatus === 'connecting') {
+    statusText = '🟡 Connecting to Accelerometer...';
+    statusColor = color(255, 255, 100);
+  } else if (serialStatus === 'error') {
+    statusText = '🔴 Serial Error - Using Keyboard';
+    statusColor = color(255, 100, 100);
+  } else {
+    statusText = '⚪ Keyboard Mode (Press \'-\' to connect serial)';
+    statusColor = color(200, 200, 200);
+  }
+
+  fill(statusColor);
+  text(statusText, width / 2, height - 20);
   pop();
 }
 
@@ -799,16 +831,16 @@ function windowResized() {
 }
 
 function keyPressed() {
-  if (key === 'f' || key === 'F') {
+  if (key === '`' || key === '~') {
     toggleFullscreen();
   }
 
   // Manual serial connect/disconnect
-  if (key === 'c' || key === 'C') {
+  if (key === '-') {
     serialManager.connect();
   }
 
-  if ((key === 'e' || key === 'E') && gameState === 'results') {
+  if ((key === '=') && gameState === 'results') {
     exportTrialCsv();
     exportSessionSummary();
   }
@@ -816,6 +848,12 @@ function keyPressed() {
   // Name entry handling
   if (gameState === 'nameEntry') {
     if (key === 'Enter' && participantName.trim().length > 0) {
+      // Capitalize first letter of each word
+      participantName = participantName
+        .split(' ')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+      console.log(`[DEBUG] Name entered: "${participantName.trim()}"`);
       gameState = 'start';
       sounds.swoosh.play();
     } else if (key === 'Backspace') {

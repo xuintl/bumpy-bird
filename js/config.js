@@ -6,7 +6,7 @@ const INVULN_MS = 1200; // Grace period after start to avoid insta-death
 
 // Dynamic pipe spawning
 const PIPE_SPAWN_MIN_MS = 2000; // Minimum time between pipes
-const DEBUG_MODE = false; // Toggle debug console output
+const DEBUG_MODE = true; // Toggle debug console output
 
 // Stages (tutorial + 3 levels)
 const stages = [
