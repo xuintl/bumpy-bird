@@ -15,7 +15,6 @@ let score = 0; // Can go negative
 let base_x = 0; // for scrolling base
 let totalCollisions = 0;
 let tiltErrors = 0;
-let playingStartMs = 0;
 
 // Stage state
 let stageIndex = 0;
@@ -28,7 +27,7 @@ let pipesCleared = 0;
 let serialManager;
 let serialStatus = 'disconnected'; // disconnected | connecting | connected | error
 let latestTiltEvent = null; // {dir, velocity, angle, ts}
-let bumpQueued = false; // true when a BUMP event is received
+let waveQueued = false; // true when a WAVE event is received
 let lastTiltProcessedMs = 0; // Debounce tilt events
 let inputMode = 'keyboard'; // 'serial' or 'keyboard'
 
@@ -83,10 +82,6 @@ function setup() {
   // Setup text rendering
   textFont('Arial');
   textAlign(LEFT, BASELINE);
-
-  // Setup audio for pitch detection
-  audioContext = getAudioContext();
-  // Don't create mic here, will do when calibration starts
 
   // Prepare serial manager but don't auto-connect; user triggers with 'C'
   serialManager = new SerialManager(onSerialLine, onSerialError, onSerialOpen, onSerialClose);
@@ -167,7 +162,7 @@ function drawStartScreen() {
   text("Welcome, " + participantName + "!", width / 2, height / 2 - 220);
 
   textSize(12);
-  text("Wave to flap!\n\nClick to start", width / 2, height / 2 - 180);
+  text("Wave to flap and navigate through pipes!\n\nPress SPACE or wave your device\n\nClick to start", width / 2, height / 2 - 180);
   pop();
 }
 
@@ -193,7 +188,7 @@ function drawPlayingScreen() {
     pipes.push(pipe);
     activePipeRef = pipe;
     // Dynamic pipe interval
-    nextPipeDueMs = nowMs + random(2000, stage.pipeIntervalMs);
+    nextPipeDueMs = nowMs + random(PIPE_SPAWN_MIN_MS, stage.pipeIntervalMs);
   }
 
   for (let i = pipes.length - 1; i >= 0; i--) {
@@ -223,10 +218,10 @@ function drawPlayingScreen() {
     }
   }
 
-  // Apply pending bump (flap)
-  if (bumpQueued) {
+  // Apply pending wave (flap)
+  if (waveQueued) {
     bird.flap();
-    bumpQueued = false;
+    waveQueued = false;
   }
 
   bird.update();
@@ -488,9 +483,6 @@ function drawTransitionOverlay() {
 // --- USER INPUT AND GAME RESET ---
 
 function mousePressed() {
-  if (audioContext.state !== 'running') {
-    audioContext.resume();
-  }
   // Handle skip tutorial click while playing tutorial
   if (gameState === 'playing' && stages[stageIndex]?.key === 'tutorial') {
     const { x, y, w, h } = getSkipButtonRect();
@@ -511,8 +503,6 @@ function mousePressed() {
       sounds.swoosh.play();
       gameState = 'playing';
       initStage();
-      // Start pitch detection
-      startPitch();
       break;
     case 'gameOver':
       console.log('[DEBUG] State transition: gameOver -> reset');
@@ -523,15 +513,6 @@ function mousePressed() {
       resetGame();
       break;
   }
-}
-
-function stopSound() {
-  if (mic && mic.enabled) {
-    mic.stop();
-    console.log("Microphone stopped.");
-  }
-  // Also nullify the pitch object to be recreated
-  pitch = null;
 }
 
 function resetGame() {
@@ -548,13 +529,8 @@ function resetGame() {
   floatingTexts = [];
   participantName = '';
   initStage();
-  // Reset frequencies
-  currentFreq = 0;
-  smoothedFreq = 0;
-  freqHistory = [];
   gameState = 'nameEntry';
   sounds.swoosh.play();
-  // No need to restart mic here, it will be created on next 'start' click
 }
 
 function handleCollision() {
@@ -855,7 +831,7 @@ function keyPressed() {
   // Gameplay keyboard fallback
   if (gameState === 'playing') {
     if (key === ' ' || keyCode === 32) {
-      bumpQueued = true; // Space = flap
+      waveQueued = true; // Space = flap
       return false;
     }
     if (keyCode === LEFT_ARROW || key === 'ArrowLeft') {
@@ -895,7 +871,7 @@ function onSerialLine(rawLine) {
 
   if (line === 'WAVE') {
     console.log('[DEBUG] Serial Event: WAVE');
-    bumpQueued = true;
+    waveQueued = true;
     return;
   }
 
