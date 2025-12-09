@@ -1,11 +1,11 @@
 class Pipe {
-    constructor(spacing = 125, speed = BASE_SCROLL_SPEED) {
-        this.spacing = spacing; // Space between top and bottom pipe
+    constructor() {
+        this.spacing = 125; // Space between top and bottom pipe
         this.top = random(height / 6, 3 / 4 * height - this.spacing);
         this.bottom = this.top + this.spacing;
         this.x = width;
         this.w = 52; // Width of the pipe asset
-        this.speed = speed;
+        this.speed = 2;
         this.passed = false;
     }
 

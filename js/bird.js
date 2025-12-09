@@ -5,8 +5,8 @@ class Bird {
         this.w = 34; // Approximate width from asset
         this.h = 24; // Approximate height from asset
         this.vy = 0;
-        this.gravity = 0.2; // Further reduced for slower fall
-        this.lift = -6.5; // Softer flap for finer control
+        this.gravity = 0.6;
+        this.lift = -10;
         this.frame = 0;
     }
 
@@ -19,6 +19,7 @@ class Bird {
 
     update() {
         this.vy += this.gravity;
+        this.vy *= 0.9; // air resistance
         this.y += this.vy;
 
         // Keep bird in bounds
