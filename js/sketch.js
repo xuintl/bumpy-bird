@@ -153,7 +153,7 @@ function drawStartScreen() {
   text("Welcome, " + participantName + "!", width / 2, height / 2 - 220);
 
   textSize(12);
-  text("Wave to flap and navigate through pipes!\nPress SPACE or wave your device\nClick to start", width / 2, height / 2 - 180);
+  text("Wave to flap and navigate through pipes!\nPress SPACE or wave your device\nPress SPACE or Click to start", width / 2, height / 2 - 180);
   pop();
 }
 
@@ -227,14 +227,25 @@ function drawPlayingScreen() {
 }
 
 function drawGameOverScreen() {
+  // Draw the bird in its final position
+  bird.show();
+
+  // Draw any remaining floating texts
+  drawFloatingTexts();
+
   push();
   image(sprites.gameOver, width / 2 - sprites.gameOver.width / 2, height / 2 - 100);
-  drawScore(height / 2);
+
+  // Display the score below the game over sprite
+  textAlign(CENTER, CENTER);
+  textSize(16);
   fill(255);
   noStroke();
-  textAlign(CENTER, CENTER);
+  text(`Score: ${score}`, width / 2, height / 2 + 20);
+  text(`Collisions: ${totalCollisions}`, width / 2, height / 2 + 45);
+
   textSize(14);
-  text("Click to play again.", width / 2, height / 2 + 80);
+  text("Press SPACE or Click to restart", width / 2, height / 2 + 90);
   pop();
 }
 
@@ -259,7 +270,7 @@ function drawResultsScreen() {
   text(`Total Collisions: ${totalCollisions}`, width / 2, height / 2 - 20);
 
   textSize(12);
-  text("Click to replay.", width / 2, height / 2 + 60);
+  text("Press SPACE or Click to replay.", width / 2, height / 2 + 60);
   pop();
 }
 
@@ -405,9 +416,9 @@ function resetGame() {
   stagePasses = 0;
   totalCollisions = 0;
   floatingTexts = [];
-  participantName = '';
+  transitionOverlay = null;
   initStage();
-  gameState = 'nameEntry';
+  gameState = 'playing';
   sounds.swoosh.play();
 }
 
@@ -421,10 +432,10 @@ function handleCollision() {
   // Spawn floating -5 text
   floatingTexts.push(new FloatingText(bird.x, bird.y, '-5', color(255, 50, 50), -1));
 
-  // Always respawn - no game over
+  // Transition to game over screen
+  console.log('[DEBUG] State transition: playing -> gameOver');
+  gameState = 'gameOver';
   pipes = [];
-  bird = new Bird();
-  nextPipeDueMs = millis() + stages[stageIndex].pipeIntervalMs;
 }
 
 function initStage() {
@@ -533,6 +544,34 @@ function keyPressed() {
   if (gameState === 'playing') {
     if (key === ' ' || keyCode === 32) {
       waveQueued = true; // Space = flap
+      return false;
+    }
+  }
+
+  // Gameplay keyboard fallback
+  if (gameState === 'playing') {
+    if (key === ' ' || keyCode === 32) {
+      waveQueued = true; // Space = flap
+      return false;
+    }
+  }
+
+  // Start game with space
+  if (gameState === 'start') {
+    if (key === ' ' || keyCode === 32) {
+      console.log('[DEBUG] State transition: start -> playing (via space)');
+      sounds.swoosh.play();
+      gameState = 'playing';
+      initStage();
+      return false;
+    }
+  }
+
+  // Restart game with space
+  if (gameState === 'gameOver' || gameState === 'results') {
+    if (key === ' ' || keyCode === 32) {
+      console.log('[DEBUG] State transition: gameOver/results -> reset (via space)');
+      resetGame();
       return false;
     }
   }
