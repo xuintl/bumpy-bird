@@ -64,10 +64,7 @@ npx http-server
 ## Arduino setup (MMA8452Q)
 - Board: Arduino with Web Serial–compatible USB connection.
 - Sensor: MMA8452Q accelerometer (3.3 V). Follow the wiring in `arduino/arduino.ino` (330 Ω inline on SDA/SCL for level shifting).
-- Upload `arduino/arduino.ino` at 9600 baud. Serial commands:
-  - `WAVE` lines (auto-emitted on gesture) trigger flaps in-game.
-  - `0` recalibrates the rest position (bound to `=` in the game).
-  - `D` prints debug Z-axis values.
+- Upload: Copy the code in `arduino/arduino.ino` to Arduino IDE, upload to and sync with the board at 9600 baud.
 - Gesture detection: downward motion detected when the drop from rest exceeds ~0.2 g; cooldown 250 ms; sampled at 20 Hz.
 
 ## Tips and troubleshooting
