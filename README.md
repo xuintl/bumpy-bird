@@ -16,6 +16,13 @@ Physical, browser-based Flappy Bird built with p5.js and the Web Serial API. Pla
 - `-`: connect or disconnect the Arduino (Web Serial prompt).
 - `=`: send calibration command to Arduino.
 
+## Project structure
+- `index.html` – loads p5.js and hooks canvas to `sketch.js`.
+- `sketch.js` – game loop, physics, sprites, scoring, Web Serial handling, fullscreen scaling.
+- `style.css` – centers and scales the canvas, dark background.
+- `audio/` and `sprites/` – game assets.
+- `arduino/` – Arduino sketch and reference examples.
+
 ## p5.js setup
 
 Because this project requires access to the browser's Microphone API and loads external ML models, **you cannot just double-click `index.html`.** Run the game either inside the official p5.js Web Editor or through a local web server to avoid CORS (Cross-Origin Resource Sharing) errors.
@@ -62,13 +69,6 @@ npx http-server
   - `0` recalibrates the rest position (bound to `=` in the game).
   - `D` prints debug Z-axis values.
 - Gesture detection: downward motion detected when the drop from rest exceeds ~0.2 g; cooldown 250 ms; sampled at 20 Hz.
-
-## Project structure
-- `index.html` – loads p5.js and hooks canvas to `sketch.js`.
-- `sketch.js` – game loop, physics, sprites, scoring, Web Serial handling, fullscreen scaling.
-- `style.css` – centers and scales the canvas, dark background.
-- `audio/` and `sprites/` – game assets.
-- `arduino/` – Arduino sketch and reference examples.
 
 ## Tips and troubleshooting
 - If the serial prompt does not appear, verify you are on a secure context (`https://` or `http://localhost`) and using a supported browser.
